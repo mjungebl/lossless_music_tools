@@ -1,0 +1,4 @@
+[supportfiles]
+flac = "L:/Flac/flac.exe"
+metaflac = "L:/Flac/metaflac.exe"
+artistexceptions = "E:/My Documents/GitHub/lossless_music_tools/artist_exceptions.txt"
