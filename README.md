@@ -33,5 +33,3 @@ https://ftp.osuosl.org/pub/xiph/releases/flac/flac-1.4.3-win.zip
 
 These were initially put together due to shortcomings I encountered when using "Traders Little Helper", which include the following:
 Poor support for unicode filenames, lack of a recursive verification of *.ffp files, and no external log file when a large number of files are verified.
-
-
