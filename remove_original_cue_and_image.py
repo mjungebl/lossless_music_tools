@@ -1,3 +1,11 @@
+"""This script is for use in conjunction with Cuetools. 
+Cuetools can convert an image/cue to individual flac files in a subdirectory (SplitFolderName).
+This script will loop through all directories, remove the original files, replace them with the files in the new subdirectory,
+and remove the subdirectory.
+Currently this is designed to run manually from the editor after editing the SplitFolderName and rootdirectory variables.
+Cuetools output "template"settings for "Encode":
+[%directoryname%\]new[%unique%]\%filename%.cue
+"""
 import os
 import shutil
 

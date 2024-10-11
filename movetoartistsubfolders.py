@@ -25,7 +25,8 @@ def main(directoryname, exceptions):
                     shutil.move(origpath, newpath)
 
 if __name__ == "__main__":
-    config = load_config('config.toml')
+    config_file = os.path.join(os.path.dirname(__file__),"config.toml")
+    config = load_config(config_file)
     rootdirectory = str(sys.argv[1])
     print("ARTISTEXCEPTIONFILE:", ARTISTEXCEPTIONFILE)
     artistexceptions = load_artist_exceptions(ARTISTEXCEPTIONFILE)

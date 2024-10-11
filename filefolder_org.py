@@ -52,7 +52,7 @@ def get_artist_subfolders(dirnm,folderlst, excpt = {}):
     for folder in folderlst:
         reldir = remove_path_from_dir_name(dirnm,folder)
         if reldir.find(' - ') != -1:
-            print('Exception keys:',excpt.keys(),'|'+reldir[0:reldir.find(' - ')]+'|')
+            #print('Exception keys:',excpt.keys(),'|'+reldir[0:reldir.find(' - ')]+'|')
             if reldir[0:reldir.find(' - ')] in excpt.keys():
                 reldir = excpt[reldir[0:reldir.find(' - ')]]
             else:
