@@ -11,15 +11,14 @@ import subprocess
 import logging
 import sys
 import toml
+import concurrent.futures
 from filefolder_org import remove_empty_file,load_config
 from datetime import datetime
 
+
 errors = []
-logger = logging.getLogger(__name__)
 #use unicode instead of ascii, NOTE: Also need to add "set PYTHONIOENCODING=utf-8" if redirecting the output
 os.system('chcp 65001') #windows only?
-
-#logging.basicConfig(level=logging.INFO ,format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S') #Don't create log file. Useful for testing
 
 def build_ffp_file_list(DirectoryName):
     """Generate the list of ffp files that are available to be verified"""
@@ -35,33 +34,42 @@ def check_ffp(ffpName, DirecotryName,FlacPath,MetaFlacPath):
     """verify an ffp file"""
     ErrorList = []
     ffp_signatures = parse_ffp(ffpName,DirecotryName)
-    for key in ffp_signatures: 
-        keymatch = False
-        verified = False
-        try:
-            fingerprint = subprocess.check_output('"'+MetaFlacPath+'"'+' --show-md5sum "'+key+'"', encoding="utf8")
-            if fingerprint.strip() == '00000000000000000000000000000000':
-                msg = f'Error in file: {ffpName}. Path: {key} cannot check MD5 signature since it was unset in the STREAMINFO'
-                ErrorList.append(msg)
-                logging.warning(msg)
-        except  subprocess.CalledProcessError as e:
-            logging.error(e.cmd)
-            print("Error:" + e.cmd)
-        try:
-            checkfile = subprocess.check_output('"'+FlacPath+'"'+' --test --silent "'+key, encoding="utf8")
-            if str(ffp_signatures[key]).strip() == fingerprint.strip():
-                msg = f"{key}:{ffp_signatures[key]} passed."
-                print(msg)
-                logging.info(msg)
+    #a single cpu is not maxing out the disk when verifying, speed things up a bit...
+    with concurrent.futures.ProcessPoolExecutor() as executor:
+        futures = {executor.submit(check_flac_file, filenm,checksum,FlacPath,MetaFlacPath,ffpName): (filenm,checksum) for (filenm,checksum) in list(ffp_signatures.items())}
+        for future in concurrent.futures.as_completed(futures):
+            Err,message = future.result()
+            if Err == None:
+                print(message)
+                logger.info(message)
             else:
-                msg = f"{key}:{ffp_signatures[key]} verified, but does not match signature."
-                print(msg)
-                ErrorList.append(msg)
-                logging.error(f'Error in file: {ffpName}. Path: {key} verified, but does not match signature.')
-        except subprocess.CalledProcessError as e:
-            ErrorList.append(f'Error verifying file: {key}')
-            logging.error(f'Error verifying file: {key}')
+                ErrorList.append(Err)
+                logger.error(Err)
+ 
     return ErrorList
+
+def check_flac_file(filenm,checksum,fp,mfp,ffpnm):
+    """check an individual flac file"""
+    Error = None
+    try:
+        fingerprint = subprocess.check_output('"'+mfp+'"'+' --show-md5sum "'+filenm+'"', encoding="utf8")
+        if fingerprint.strip() == '00000000000000000000000000000000':
+            msg = f'Error in file: {filenm}. Path: {filenm} cannot check MD5 signature since it was unset in the STREAMINFO'
+            Error = msg
+            logging.error(msg)
+    except  subprocess.CalledProcessError as e:
+        logger.error(e.cmd)
+        Error = f"Error: {e.cmd}"
+    try:
+        checkfile = subprocess.check_output('"'+fp+'"'+' --test --silent "'+filenm, encoding="utf8")
+        if str(checksum).strip() == fingerprint.strip():
+            msg = f"{filenm}:{checksum} passed."
+        else:
+            msg = f"Error in file: {ffpnm}. Path: {filenm}:{checksum} verified, but does not match signature."
+            Error = msg
+    except subprocess.CalledProcessError as e:
+        Error = f'Error verifying file: {filenm}: {e}'
+    return Error, msg
 
 def parse_ffp(ffpName,DirecotryName):
     """split ffp file into dictionary with full file path as key and signature as value"""
@@ -87,25 +95,31 @@ if __name__ == "__main__":
     
     while rootdirectory[-1:] in ['/']:
         rootdirectory = rootdirectory[:len(rootdirectory)-1]
+    logger = logging.getLogger(__name__)
     logfilename = f'{rootdirectory}/Verify{date}.log'
-    logging.basicConfig(filename=logfilename, level=logging.WARNING ,format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S') #create log file
-    logging.info('Searching for *.ffp files recursively: ' + rootdirectory)
-
+    logging.basicConfig(filename=logfilename, level=logging.ERROR ,format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S') #create log file
+    logger.info(f'Searching for *.ffp files recursively and verifying signatures in {rootdirectory}')
     ffps = build_ffp_file_list(rootdirectory)
     if (len(ffps)) == 0:
         print(f'No fingerprints to verify in subdirectories of {rootdirectory}')
 
     for (filenm,pathnm) in ffps:
         print(filenm)
-        logging.info('Verifying: ' + filenm)
+        logger.info('Verifying: ' + filenm)
         errors += check_ffp(filenm,pathnm,PathToFlac,PathToMetaflac)
     if len(errors) > 0:
+        log_err_sum = False
+        if logger.getEffectiveLevel() < 40: #if we need to scroll through the log, summarize the errors at the end
+            logger.error('Error Summary:')
+            log_err_sum = True
         print('Errors:')
         for error in errors:
-            print(error)
+            print(f'Error: {error}')
+            if log_err_sum:
+                logger.error(error)
     else:
         print('No errors occurred')
-    logging.info(f'Completed searching for *.ffp files recursively:  {rootdirectory}')
+    logger.info(f'Completed searching and verifying *.ffp files recursively in {rootdirectory}')
     #Close the log file and delete if it is empty
     logging.shutdown()
     remove_empty_file(logfilename)
