@@ -18,7 +18,7 @@ from datetime import datetime
 
 errors = []
 #use unicode instead of ascii, NOTE: Also need to add "set PYTHONIOENCODING=utf-8" if redirecting the output
-os.system('chcp 65001') #windows only?
+os.system('chcp 65001 > NUL 2>&1') #windows only?
 
 def build_ffp_file_list(DirectoryName):
     """Generate the list of ffp files that are available to be verified"""
@@ -33,7 +33,10 @@ def build_ffp_file_list(DirectoryName):
 def check_ffp(ffpName, DirecotryName,FlacPath,MetaFlacPath):
     """verify an ffp file"""
     ErrorList = []
-    ffp_signatures = parse_ffp(ffpName,DirecotryName)
+    ffp_signatures, Err = parse_ffp(ffpName,DirecotryName)
+    if Err != None:
+        ErrorList.append(Err)
+        return ErrorList
     #a single cpu is not maxing out the disk when verifying, speed things up a bit...
     with concurrent.futures.ProcessPoolExecutor() as executor:
         futures = {executor.submit(check_flac_file, filenm,checksum,FlacPath,MetaFlacPath,ffpName): (filenm,checksum) for (filenm,checksum) in list(ffp_signatures.items())}
@@ -73,14 +76,38 @@ def check_flac_file(filenm,checksum,fp,mfp,ffpnm):
 
 def parse_ffp(ffpName,DirecotryName):
     """split ffp file into dictionary with full file path as key and signature as value"""
-    ffp = open(ffpName, encoding="utf-8")
+    msg = None
     ffp_sigs = {}
-    for line in ffp:
-            if not line.startswith(';') and ':' in line:
-                ffp_line = line.strip().replace('\\','/')
-                ffp_parts = ffp_line[::-1].split(':',1)
-                ffp_sigs[DirecotryName+'/'+ffp_parts[1][::-1]] = ffp_parts[0][::-1]
-    return ffp_sigs
+    try: 
+        ffp = open(ffpName, encoding="utf-8")
+    except Exception as e:
+        msg = f'Error in file {ffpName}: {e}'
+        print(msg)
+        logger.error(msg)          
+    #Attempt to read the first line of the ffp file to determine if it is not encoded using utf-8. If an error occurs, reopen without the encoding parameter.
+    try:
+        firstline = ffp.readline()
+    except UnicodeDecodeError:
+        ffp.close()
+        try: 
+            ffp = open(ffpName)
+        except Exception as e:
+            msg = f'Error in file {ffpName}: {e}'
+            print(msg)
+            logger.error(msg)               
+    try:
+        for line in ffp:
+                if not line.startswith(';') and ':' in line:
+                    ffp_line = line.strip().replace('\\','/')
+                    ffp_parts = ffp_line[::-1].split(':',1)
+                    ffp_sigs[DirecotryName+'/'+ffp_parts[1][::-1]] = ffp_parts[0][::-1]
+    except Exception as e:
+        msg = f'Error in file {ffpName}: {e}'
+        print(msg)
+        logger.error(msg)                    
+    
+    return ffp_sigs, msg
+
 
 #Main Code
 if __name__ == "__main__":
