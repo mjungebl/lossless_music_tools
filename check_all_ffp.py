@@ -12,7 +12,7 @@ import logging
 import sys
 import toml
 import concurrent.futures
-from filefolder_org import remove_empty_file,load_config
+from filefolder_org import remove_empty_file,load_config,fix_directory_name
 from datetime import datetime
 
 
@@ -119,9 +119,7 @@ if __name__ == "__main__":
     PathToFlac = config['supportfiles']['flac']
     PathToMetaflac = config['supportfiles']['metaflac']
     rootdirectory = str(sys.argv[1]).replace("'","")
-    
-    while rootdirectory[-1:] in ['/']:
-        rootdirectory = rootdirectory[:len(rootdirectory)-1]
+    rootdirectory = fix_directory_name(rootdirectory)
     logger = logging.getLogger(__name__)
     logfilename = f'{rootdirectory}/Verify{date}.log'
     logging.basicConfig(filename=logfilename, level=logging.ERROR ,format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S') #create log file
