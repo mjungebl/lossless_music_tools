@@ -3,7 +3,7 @@ REM Sample cmd script
 REM the PYTHONIOENCODING=utf8 is to allow for unicode in filenames
 set PYTHONIOENCODING=utf8
 SET WORKPATH='%~dp0'
-C:/Users/mexic/AppData/Local/Programs/Python/Python312/python.exe l:/Flac/check_all_ffp.py %WORKPATH% >> log.txt
+C:/Users/mexic/AppData/Local/Programs/Python/Python312/python.exe l:/Flac/check_all_ffp.py "%WORKPATH%" >> log.txt
 pause
 """
 import os
@@ -38,7 +38,9 @@ def check_ffp(ffpName, DirecotryName,FlacPath,MetaFlacPath):
         ErrorList.append(Err)
         return ErrorList
     #a single cpu is not maxing out the disk when verifying, speed things up a bit...
-    with concurrent.futures.ProcessPoolExecutor() as executor:
+    #with concurrent.futures.ProcessPoolExecutor() as executor:
+    #multithreading appears to be a bit faster
+    with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = {executor.submit(check_flac_file, filenm,checksum,FlacPath,MetaFlacPath,ffpName): (filenm,checksum) for (filenm,checksum) in list(ffp_signatures.items())}
         for future in concurrent.futures.as_completed(futures):
             Err,message = future.result()
@@ -57,21 +59,19 @@ def check_flac_file(filenm,checksum,fp,mfp,ffpnm):
     try:
         fingerprint = subprocess.check_output('"'+mfp+'"'+' --show-md5sum "'+filenm+'"', encoding="utf8")
         if fingerprint.strip() == '00000000000000000000000000000000':
-            msg = f'Error in file: {filenm}. Path: {filenm} cannot check MD5 signature since it was unset in the STREAMINFO'
-            Error = msg
-            logging.error(msg)
+            Error = msg = f'Error in file: {filenm}. Path: {filenm} cannot check MD5 signature since it was unset in the STREAMINFO'
     except  subprocess.CalledProcessError as e:
-        logger.error(e.cmd)
-        Error = f"Error: {e.cmd}"
+        #logger.error(e.cmd)
+        Error = msg = f"Error: {e.cmd}"
     try:
         checkfile = subprocess.check_output('"'+fp+'"'+' --test --silent "'+filenm, encoding="utf8")
         if str(checksum).strip() == fingerprint.strip():
             msg = f"{filenm}:{checksum} passed."
         else:
-            msg = f"Error in file: {ffpnm}. Path: {filenm}:{checksum} verified, but does not match signature."
-            Error = msg
+            Error = msg = f"Error in file: {ffpnm}. Path: {filenm}:{checksum} verified, but does not match signature."
     except subprocess.CalledProcessError as e:
-        Error = f'Error verifying file: {filenm}: {e}'
+        Error = msg = f'Error verifying file: {filenm}: {e}'
+        
     return Error, msg
 
 def parse_ffp(ffpName,DirecotryName):
