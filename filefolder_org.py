@@ -1,5 +1,5 @@
 """This module is not intended for execution. It contains functions shared between other modules that are used in flac file management"""
-import os.path
+import os
 import sys
 import toml
 """
@@ -62,6 +62,24 @@ def get_artist_subfolders(dirnm,folderlst, excpt = {}):
         directorymap[folder] = reldir
     return directorymap
 
+def get_concert_subfolders(dirnm,folderlst, excpt = {}):
+    """for live recordings move the folders in the respective year subfolders"""
+    #To Do: make this more robust for multipl artists
+    directorymap = {}
+    for folder in folderlst:
+        reldir = remove_path_from_dir_name(dirnm,folder)
+        if reldir.startswith(('gd','ph','jg')) and reldir[2:6].isdigit() and len(reldir) > 6:
+            reldir = f"{dirnm}/{reldir[0:6].lower()}"
+            #print('Exception keys:',excpt.keys(),'|'+reldir[0:reldir.find(' - ')]+'|')
+            #if reldir[0:reldir.find(' - ')] in excpt.keys():
+            #    reldir = excpt[reldir[0:reldir.find(' - ')]]
+            #else:
+            #    reldir = reldir[0:reldir.find(' - ')]
+        else:
+            reldir = None
+        directorymap[folder] = reldir
+    return directorymap
+
 def load_artist_exceptions(filenm):
     """Load the artist exceptions file. Used when an artist should be mapped to a different subfolder"""
     exceptions = {}
@@ -76,3 +94,22 @@ def load_artist_exceptions(filenm):
 #print(test)
 if __name__ == "__main__":
     rootdirectory = str(sys.argv[1])
+
+
+def replace_in_file_names(directory, find_str, replace_str):
+    """
+    Renames files in a directory by replacing a string in the filename.
+
+    Args:
+        directory: The directory containing the files to rename.
+        find_str: The string to find in the filenames.
+        replace_str: The string to replace the find_str with.
+    """
+
+    for filename in os.listdir(directory):
+        if find_str in filename:
+            new_filename = filename.replace(find_str, replace_str)
+            old_path = os.path.join(directory, filename)
+            new_path = os.path.join(directory, new_filename)
+            os.rename(old_path, new_path)
+            print(f"Renamed: {filename} -> {new_filename}")

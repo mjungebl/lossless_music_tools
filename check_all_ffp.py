@@ -34,6 +34,7 @@ def check_ffp(ffpName, DirecotryName,FlacPath,MetaFlacPath):
     """verify an ffp file"""
     ErrorList = []
     ffp_signatures, Err = parse_ffp(ffpName,DirecotryName)
+    #print(ffp_signatures)
     if Err != None:
         ErrorList.append(Err)
         return ErrorList
@@ -101,6 +102,11 @@ def parse_ffp(ffpName,DirecotryName):
                     ffp_line = line.strip().replace('\\','/')
                     ffp_parts = ffp_line[::-1].split(':',1)
                     ffp_sigs[DirecotryName+'/'+ffp_parts[1][::-1]] = ffp_parts[0][::-1]
+                else:
+                    if not line.startswith(';') and '*' in line:
+                        ffp_line = line.strip().replace('\\','/')
+                        ffp_parts = ffp_line[::-1].split('*',1)
+                        ffp_sigs[DirecotryName+'/'+ffp_parts[0][::-1].strip()] = ffp_parts[1][::-1].strip()                  
     except Exception as e:
         msg = f'Error in file {ffpName}: {e}'
         print(msg)
@@ -119,6 +125,7 @@ if __name__ == "__main__":
     PathToFlac = config['supportfiles']['flac']
     PathToMetaflac = config['supportfiles']['metaflac']
     rootdirectory = str(sys.argv[1]).replace("'","")
+    #rootdirectory = 'V:\Music\Phil Lesh'
     rootdirectory = fix_directory_name(rootdirectory)
     logger = logging.getLogger(__name__)
     logfilename = f'{rootdirectory}/Verify{date}.log'
@@ -129,7 +136,7 @@ if __name__ == "__main__":
         print(f'No fingerprints to verify in subdirectories of {rootdirectory}')
 
     for (filenm,pathnm) in ffps:
-        print(filenm)
+        #print(filenm)
         logger.info('Verifying: ' + filenm)
         errors += check_ffp(filenm,pathnm,PathToFlac,PathToMetaflac)
     if len(errors) > 0:

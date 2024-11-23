@@ -13,7 +13,8 @@ os.system('chcp 1252') #windows only?
 
 #to do change these to parameters
 SplitFolderName = "new"
-rootdirectory = f'X:/Downloads/_Extract/Artist - Album Name'
+#rootdirectory = f'X:/Downloads/_Extract/Artist - Album Name'
+rootdirectory = "X:/Downloads/_Extract/_Batch/Frank Zappa - You Can't Do That On Stage Anymore Vol. 2 (1988) [Remaster]"
 
 
 #Functions
