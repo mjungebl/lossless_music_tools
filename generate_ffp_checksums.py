@@ -7,7 +7,7 @@ SET WORKPATH='%~dp0'
 C:/Users/mexic/AppData/Local/Programs/Python/Python312/python.exe l:/Flac/generate_ffp_checksums.py "%WORKPATH%" > log.txt
 pause
 """
-import os.path
+import os
 import subprocess
 import sys
 import toml
@@ -15,6 +15,8 @@ import logging
 import concurrent.futures
 from filefolder_org import fix_directory_name, get_child_directories,remove_empty_file,load_config
 from datetime import datetime
+from losslessfiles import ffp
+from pathlib import Path
 
 def check_folder_for_checksums(DirectoryName):
     """This function will check if a ffp file exists in the specified directory"""
@@ -25,89 +27,61 @@ def check_folder_for_checksums(DirectoryName):
             break
     return ffpexists
 
-def generate_checksums_for_folder(DirectoryName,ParentDirectoryName):
-    """This function will generate checksums for all flac files in the specified directory and subdirectories"""
+def generate_checksums_for_folder(DirectoryName: str,PathToMetaflac: str):
     chkffp = check_folder_for_checksums(DirectoryName)
     if chkffp:
         #don't create ffp if one already exists
         print(f"ffp exists in:  {DirectoryName}/")
         return ([],None)
-    Fingerprints = []
-    b_error = False
-    for path, directories, files in os.walk(DirectoryName):
-        for file in files:
-            if file.lower().endswith(".flac"):
-                filepath = path.replace('\\','/')+"/"+file
-                try:
-                    if len(filepath) > 260:
-                        raise Exception(f"Path too long: {filepath =}")
-                except Exception as e:
-                    b_error = True
-                    Err = f"Error: {e}" #sys.error(e) 
-                    print(Err)
-                    logging.error(Err)
-                if not b_error:
-                    try:               
-                        fingerprint = subprocess.check_output('"'+PathToMetaflac+'"'+' --show-md5sum "'+filepath+'"', encoding="utf8")
-                        if fingerprint.strip() == '00000000000000000000000000000000':
-                            b_error = True
-                            Err = f"Error in file: {filepath}. Fingerprint = {fingerprint.strip()}"
-                            print(Err)
-                            logger.error(Err)
-                        else:
-                            Fingerprints.append(filepath.replace(DirectoryName.replace('\\','/')+'/','')+':'+fingerprint.strip())
-                    except subprocess.CalledProcessError as e:
-                        Err = f"Error: {e.cmd}"
-                        print(Err)
-                        logging.error(Err)
-                        b_error = True
-    if b_error:
-        print("Error Generating checksums for: "+DirectoryName)
-        return ([],None)
     else:
-        if len(Fingerprints) == 0:
-            print("No checksums generated for: "+DirectoryName)
-            return ([],None)
-        print("Checksums generated for: "+DirectoryName)
-        return (Fingerprints,DirectoryName+"/"+DirectoryName.replace(ParentDirectoryName,'')+'.ffp')
-
-def WriteFfp(FingerprintList, FileName):
-    """This function will create a ffp file in the specified directory using the values passed in"""
-    try:
-        output_file = open(FileName, 'w', encoding="utf-8")
-        for ffp in FingerprintList:
-            output_file.write(ffp + '\n')
-        output_file.close()
-        print(f"Created file: {FileName}")
-    except Exception as e:
-        #errors may occur occasionally when there is a bad character in a flac filename. Do not create the ffp file if an exception occurs
-        if output_file.closed == False:
-            output_file.close()
-        remove_empty_file(FileName)
-        print(f"ERROR Creating file: {e}")
+        DirectoryName = Path(DirectoryName).as_posix()
+        ParentDirectoryName = Path(DirectoryName).parent.as_posix() +'/'
+        ffpName = DirectoryName.replace(ParentDirectoryName,'') + '.ffp'
+        print(f'{DirectoryName=} {ffpName=}')
+        ffpFile = ffp(DirectoryName,ffpName,metaflacpath = PathToMetaflac)
+        if not ffpFile.errors:
+            ffpFile.generate_checksums()
+        if not ffpFile.errors:
+            ffpFile.SaveFfp()
+        for Err in ffpFile.errors:
+            logging.error(Err)
+    #return ffpFile
 
 def Main(DirectoryName):
-    list_subfolders_with_paths = get_child_directories(DirectoryName)
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        futures = {executor.submit(generate_checksums_for_folder, dirnm,DirectoryName): dirnm for dirnm in list_subfolders_with_paths}
-        for future in concurrent.futures.as_completed(futures):
-            ffps,filename = future.result()
-            if ffps:
-                WriteFfp(ffps,filename)
-
-if __name__ == "__main__":
-    #These first two vaiables (PathToFlac,PathToMetaflac) could potentially be removed if the flac.exe and metaflac.exe are in the path.
-    #To do: add compatibility with non-Windows systems
     date = datetime.now().strftime('%Y%m%d%H%M%S') #date for the log name
+    logger = logging.getLogger(__name__)
+    logfilename = f'{DirectoryName}/Generate_Checksums{date}.log'
+    logging.basicConfig(filename=logfilename, level=logging.ERROR ,format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S') #create log file
+        
     config_file = os.path.join(os.path.dirname(__file__),"config.toml")
     config = load_config(config_file)
     PathToFlac = config['supportfiles']['flac']
     PathToMetaflac = config['supportfiles']['metaflac']
-    rootdirectory = str(sys.argv[1]).replace("'","")
-    rootdirectory = fix_directory_name(rootdirectory)
-    logger = logging.getLogger(__name__)
-    logfilename = f'{rootdirectory}/Generate_Checksums{date}.log'
-    logging.basicConfig(filename=logfilename, level=logging.ERROR ,format='%(asctime)s - %(levelname)s - %(message)s', datefmt='%d-%b-%y %H:%M:%S') #create log file
-    Main(rootdirectory)
+    list_subfolders_with_paths = get_child_directories(DirectoryName)
+    #for item in list_subfolders_with_paths:
+        #item = Path(item).as_posix()
+        #parent = Path(item).parent.as_posix() +'/'
+        #print(f'{item.replace(parent,'')} {parent=}')
+    #    generate_checksums_for_folder(item,PathToMetaflac)
+    with concurrent.futures.ThreadPoolExecutor() as executor:
+        futures = {executor.submit(generate_checksums_for_folder, dirnm,PathToMetaflac): dirnm for dirnm in list_subfolders_with_paths}
+    #    for future in concurrent.futures.as_completed(futures):
+    #        ffps,filename = future.result()
+    #        if ffps:
+    #            WriteFfp(ffps,filename)
     logging.shutdown()
     remove_empty_file(logfilename)
+
+if __name__ == "__main__":
+    #To do: add compatibility with non-Windows systems
+    
+
+    #rootdirectory = r'X:\Downloads\_Extract\Phish'
+    rootdirectory = str(sys.argv[1])
+    while rootdirectory[-1:] in ["'"]:
+        rootdirectory = rootdirectory[:len(rootdirectory)-1]
+    while rootdirectory[0] in ["'"]:
+        rootdirectory = rootdirectory[1:]
+    rootdirectory = fix_directory_name(rootdirectory)
+    #print(f'{rootdirectory=}')
+    Main(rootdirectory)

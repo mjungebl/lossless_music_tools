@@ -1,4 +1,8 @@
 [supportfiles]
 flac = "L:/Flac/flac.exe"
 metaflac = "L:/Flac/metaflac.exe"
+oldflac = "L:/Flac/flac-1.3.2-win/win64/flac.exe"
+#metaflac = "L:/Flac/flac-1.3.2-win/win64/metaflac.exe"
 artistexceptions = "E:/My Documents/GitHub/lossless_music_tools/artist_exceptions.txt"
+shorten = "L:/Flac/shorten.exe"
+shntool = "L:/Flac/shntool.exe"
