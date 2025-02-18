@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
+import os
+import sys
+import os
+import subprocess
+import shutil
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from pathlib import Path
+from filefolder_org import get_files_by_extension,copy_files_by_extension_recursive,get_file_extensions
+from losslessfiles import generate_st5_for_folder
 
+# For Python 3.11+, 'import tomllib' is built in.
+# For older Pythons: 'pip install tomli' => 'import tomli as tomllib'
+import tomllib
 """
 Usage:
   python shn_to_flac_compare_st5.py <source_parent> <destination_parent>
@@ -27,15 +39,7 @@ Requirements:
   - shorten.exe, flac.exe, shntool.exe must be valid executables.
 """
 
-import sys
-import os
-import subprocess
-import shutil
-from concurrent.futures import ThreadPoolExecutor
 
-# For Python 3.11+, 'import tomllib' is built in.
-# For older Pythons: 'pip install tomli' => 'import tomli as tomllib'
-import tomllib
 
 
 ###############################################################################
@@ -156,43 +160,6 @@ def gather_shn_files_by_folder(source_parent):
 # ST5 for SHN, ST5 for FLAC, then compare
 ###############################################################################
 
-def generate_st5_for_shn(shntool_exe: str, folder: str, st5_filename: str):
-    """
-    In 'folder', run:
-      shntool.exe hash -m *.shn > st5_filename
-    capturing stdout => st5_filename.
-    """
-    cmd = [
-        shntool_exe,
-        "hash",
-        "-m",
-        "*.shn"
-    ]
-    st5_path = os.path.join(folder, st5_filename)
-    print(f"[ST5 from SHN] {folder} => {st5_filename}")
-    proc = subprocess.run(cmd, cwd=folder, capture_output=True, text=True)
-    with open(st5_path, "w", encoding="utf-8") as f:
-        f.write(proc.stdout)
-    return (st5_path, proc.returncode)
-
-def generate_st5_for_flac(shntool_exe: str, folder: str, st5_filename: str):
-    """
-    In 'folder', run:
-      shntool.exe hash -m *.flac > st5_filename
-    capturing stdout => st5_filename.
-    """
-    cmd = [
-        shntool_exe,
-        "hash",
-        "-m",
-        "*.flac"
-    ]
-    st5_path = os.path.join(folder, st5_filename)
-    print(f"[ST5 from FLAC] {folder} => {st5_filename}")
-    proc = subprocess.run(cmd, cwd=folder, capture_output=True, text=True)
-    with open(st5_path, "w", encoding="utf-8") as f:
-        f.write(proc.stdout)
-    return (st5_path, proc.returncode)
 
 def compare_st5_files(st5_shn_path: str, st5_flac_path: str) -> list[str]:
     """
@@ -204,7 +171,7 @@ def compare_st5_files(st5_shn_path: str, st5_flac_path: str) -> list[str]:
       b8e748d6698bfe2847ebddee6d77633d  [shntool]  gd66-01t01.shn
     """
 
-    import os
+
     
     results = []
 
@@ -315,7 +282,7 @@ def main():
     for folder, shn_files in shn_dict.items():
         folder_name = os.path.basename(folder)
         st5_filename = folder_name + ".shn.st5"
-        st5_path, rc = generate_st5_for_shn(shntool_exe, folder, st5_filename)
+        st5_path, rc = generate_st5_for_folder(shntool_exe, folder, st5_filename,shn_files)
         st5_shn_map[folder] = st5_path
         if rc != 0:
             print(f"[ST5 WARN] Return code {rc} for .shn st5 in {folder}")
@@ -324,7 +291,7 @@ def main():
     futures = []
     success_count = 0
     fail_count    = 0
-    max_workers   = 4
+    max_workers   = 3
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for folder, shn_files in shn_dict.items():
@@ -365,18 +332,20 @@ def main():
         if not os.path.isdir(tgt_folder):
             continue
 
-        # Copy any .txt
-        txt_files = [f for f in os.listdir(folder) if f.lower().endswith(".txt")]
-        for txtf in txt_files:
-            src_txt = os.path.join(folder, txtf)
-            dst_txt = os.path.join(tgt_folder, txtf)
-            print(f"[COPY TXT] {src_txt} => {dst_txt}")
-            shutil.copy2(src_txt, dst_txt)
+        # Copy any files that are in the original folder
+        extension_list = get_file_extensions(folder)
+        exclude_extensions = [".shn",".md5"]
+        for extension in extension_list:
+            if extension.lower() in exclude_extensions:
+                #don't want to copy these
+                continue
+            copy_files_by_extension_recursive(folder,tgt_folder,extension)
 
         # 3a) Generate ST5 for .flac in target
         folder_name = os.path.basename(tgt_folder)
         st5_flac_filename = folder_name + ".flac.st5"
-        st5_flac_path, rc2 = generate_st5_for_flac(shntool_exe, tgt_folder, st5_flac_filename)
+        flac_files = get_files_by_extension(tgt_folder,'flac')
+        st5_flac_path, rc2 = generate_st5_for_folder(shntool_exe, tgt_folder,st5_flac_filename, flac_files)
         if rc2 != 0:
             print(f"[ST5 WARN] Return code {rc2} for .flac st5 in {tgt_folder}")
 
@@ -394,21 +363,15 @@ def main():
                     for d in diffs:
                         lf.write(d + "\n")
                 else:
-                    lf.write("[OK] No differences. (unlikely for compressed data)\n")
+                    lf.write("[OK] No differences.\n")
 
     print(f"\nAll done. Full verification => {verification_log}")
 
 
-################################################################################
-# if you truly want to verify the underlying audio data, you'd typically do a wave-based
-# approach (e.g. 'shntool hash -l *.shn' or 'flac -d' => raw wave cmp), which is not done here.
-################################################################################
-
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         #print("Usage: python convert_shn_to_flac_with_shorten_multithreaded.py <source_parent> <destination_parent>")
-        source = r"X:\Music\Concerts\Concerts_GD\Grateful_Dead\gd1974" #parent directroy to search for shns
-        target = r"M:\ConvertSHN\Grateful_Dead\gd1974" #new parent directory
+        source = r"X:\Downloads\_FTP\_Concerts_Unofficial\_renamed2\gd1972" #parent directroy to search for shns
+        target = r"M:\ConvertSHN\Grateful_Dead\gd1972" #new parent directory
         sys.argv = ["shntoflac_batch.py",source,target]
     main()
-    #print(compare_st5_files(r"M:\ConvertSHN\Grateful_Dead\gd1966\gd1966-01-xx.18846.sbd.hanno-uli.sbeok.flac16\gd1966-01-xx.18846.sbd.hanno-uli.sbeok.flac16.flac.st5","X:\Music\Concerts\Concerts_GD\Grateful_Dead\gd1966\gd1966-01-xx.18846.sbd.hanno-uli.sbeok.shnf\gd1966-01-xx.18846.sbd.hanno-uli.sbeok.shnf.shn.st5"))

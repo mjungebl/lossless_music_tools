@@ -5,9 +5,11 @@ import sys
 from filefolder_org import fix_directory_name, get_child_directories, remove_path_from_dir_name,  get_artist_subfolders, load_artist_exceptions,\
       load_config, ARTISTEXCEPTIONFILE
 import shutil
-import toml
 
-def main(directoryname, exceptions):
+def main(directoryname):
+    #config_file = os.path.join(os.path.dirname(__file__),"config.toml")
+    #config = load_config(config_file)    
+    exceptions = load_artist_exceptions(ARTISTEXCEPTIONFILE)
     directoryname = fix_directory_name(directoryname)
     listsubfolders = get_child_directories(directoryname)
     foldermap = get_artist_subfolders(directoryname, listsubfolders, exceptions)
@@ -25,9 +27,8 @@ def main(directoryname, exceptions):
                     shutil.move(origpath, newpath)
 
 if __name__ == "__main__":
-    config_file = os.path.join(os.path.dirname(__file__),"config.toml")
-    config = load_config(config_file)
+    #sys.argv = [' ',r'X:\Downloads\_Extract\_Batch\' ]
     rootdirectory = str(sys.argv[1])
-    print("ARTISTEXCEPTIONFILE:", ARTISTEXCEPTIONFILE)
-    artistexceptions = load_artist_exceptions(ARTISTEXCEPTIONFILE)
-    main(rootdirectory, artistexceptions)
+    #rootdirectory = r'X:\Downloads\_Extract\_Batch' 
+    #print("ARTISTEXCEPTIONFILE:", ARTISTEXCEPTIONFILE)
+    main(rootdirectory)

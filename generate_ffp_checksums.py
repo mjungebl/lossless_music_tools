@@ -10,7 +10,6 @@ pause
 import os
 import subprocess
 import sys
-import toml
 import logging
 import concurrent.futures
 from filefolder_org import fix_directory_name, get_child_directories,remove_empty_file,load_config
@@ -58,17 +57,9 @@ def Main(DirectoryName):
     PathToFlac = config['supportfiles']['flac']
     PathToMetaflac = config['supportfiles']['metaflac']
     list_subfolders_with_paths = get_child_directories(DirectoryName)
-    #for item in list_subfolders_with_paths:
-        #item = Path(item).as_posix()
-        #parent = Path(item).parent.as_posix() +'/'
-        #print(f'{item.replace(parent,'')} {parent=}')
-    #    generate_checksums_for_folder(item,PathToMetaflac)
+
     with concurrent.futures.ThreadPoolExecutor() as executor:
         futures = {executor.submit(generate_checksums_for_folder, dirnm,PathToMetaflac): dirnm for dirnm in list_subfolders_with_paths}
-    #    for future in concurrent.futures.as_completed(futures):
-    #        ffps,filename = future.result()
-    #        if ffps:
-    #            WriteFfp(ffps,filename)
     logging.shutdown()
     remove_empty_file(logfilename)
 
