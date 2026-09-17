@@ -76,7 +76,17 @@ def generate_st5_for_file(shntool_exe: str, file:str, folder: str):
 
 
 class ffp:
+    """class to hold a ffp file, which contains the checksums for all flac files in a directory"""
     def __init__ (self, location: str, name: str, signatures: dict ={}, metaflacpath: str = None, flacpath: str = None):
+        """
+        Initialize the ffp object with the location and name of the ffp file, and optionally the metaflac and flac paths.
+        If metaflacpath or flacpath is not provided, it will use the default paths from the config file.
+        :param location: The directory where the ffp file is located.
+        :param name: The name of the ffp file.
+        :param signatures: A dictionary of file paths and their corresponding checksums.
+        :param metaflacpath: The path to the metaflac executable. If None, it will use the default path from the config file.
+        :param flacpath: The path to the flac executable. If None, it will use the default path from the config file.
+        """
         self.location = location
         self.name = name
         #if metaflacpath is not None:
@@ -91,12 +101,13 @@ class ffp:
         ffpName = f'{self.location}/{self.name}'
         msg = None
         ffp_sigs = {}
-        try: 
+        try:
             ffp = open(ffpName, encoding="utf-8")
         except Exception as e:
             msg = f'Error reading file {ffpName}: {e}'
             print(msg)
             self.errors.append(msg)
+            return
         #Attempt to read the first line of the ffp file to determine if it is not encoded using utf-8. If an error occurs, reopen without the encoding parameter.
         try:
             firstline = ffp.readline()
@@ -104,12 +115,13 @@ class ffp:
             ffp = open(ffpName, encoding="utf-8")
         except UnicodeDecodeError:
             ffp.close()
-            try: 
+            try:
                 ffp = open(ffpName)
             except Exception as e:
                 msg = f'Error reading file {ffpName}: {e}'
                 self.errors.append(msg)
-                print(msg)             
+                print(msg)
+                return
         try:
             for line in ffp:
                     if not line.startswith(';') and ':' in line:
@@ -127,6 +139,8 @@ class ffp:
             #print(msg)
             self.errors.append(msg)
             #logger.error(msg)                    
+        finally:
+            ffp.close()
         
         #return ffpFile
 
@@ -207,7 +221,7 @@ class ffp:
         #a single process is not maxing out the disk when verifying, speed things up a bit...
         #with concurrent.futures.ProcessPoolExecutor() as executor:
         #multithreading appears to be a bit faster
-        with concurrent.futures.ThreadPoolExecutor() as executor:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=2) as executor:
             futures = {executor.submit(verifyflacfile, filenm,checksum,self.flacpath,self.metaflacpath,self.name,self.location): \
                     (filenm,checksum) for (filenm,checksum) in list(self.signatures.items())}
             for future in concurrent.futures.as_completed(futures):
@@ -227,59 +241,103 @@ class ffp:
 def verifyflacfile(filenm,checksum,fp,mfp,ffpnm,loc):
     """check an individual flac file"""
     filepath = loc + '/' + filenm
-    Error = None
+    sanitized_filenm = re.sub(r'[<>:"|?*]', '_', filenm)
+    sanitized_filepath = loc + '/' + sanitized_filenm
+    invalid_chars = sorted({char for char in Path(filenm).name if char in '<>:"|?*'})
+    display_filenm = filenm
+    normalization_note = None
+
+    if not os.path.exists(filepath):
+        if invalid_chars and os.path.exists(sanitized_filepath):
+            filepath = sanitized_filepath
+            display_filenm = sanitized_filenm
+            normalization_note = (
+                f" > underscore sub invalid char(s): {' '.join(invalid_chars)}"
+            )
+        elif invalid_chars:
+            msg = (
+                f"Error verifying file: {filenm}:\n\t "
+                f"FFP entry contains Windows-illegal filename character(s): {' '.join(invalid_chars)} "
+                f"and underscore-substituted path was not found: {sanitized_filepath}"
+            )
+            return msg, msg
+        else:
+            msg = f"Error verifying file: {filenm}:\n\t File not found: {filepath}"
+            return msg, msg
+
+    if not os.path.exists(filepath):
+        msg = f"Error verifying file: {filenm}:\n\t File not found: {filepath}"
+        return msg, msg
+
     try:
         #fingerprint = subprocess.check_output('"'+mfp+'"'+' --show-md5sum "'+loc+'/'+filenm+'"', encoding="utf8")
         flac_file = FLAC(filepath) #using mutagen prevents the need to call the metaflac cmd. 
         fingerprint = ("%02x" % flac_file.info.md5_signature).rjust(32, '0')        
         if fingerprint.strip() == '00000000000000000000000000000000':
-            Error = msg = f'Error in file: {filenm}. Path: {filenm} cannot check MD5 signature since it was unset in the STREAMINFO'
+            msg = f'Error in file: {display_filenm}. Path: {display_filenm} cannot check MD5 signature since it was unset in the STREAMINFO'
+            return msg, msg
     #except  subprocess.CalledProcessError as e:
     except Exception as e:
-        #logger.error(e.cmd)
-        Error = msg = f"Error: {e}"
+        msg = f'Error verifying file: {display_filenm}:\n\t {e}'
+        return msg, msg
+
     try:
         #rawfingerprint = calcflacfingerprint(filepath)
         #if rawfingerprint != fingerprint:
         #    msg = f"{filenm}:{rawfingerprint} does not match {checksum}."
-        checkfile = subprocess.check_output('"'+fp+'"'+' --test --silent "'+loc+'/'+filenm, encoding="utf8")
-        if str(checksum).strip() == fingerprint.strip():
-            msg = f"{filenm}:{checksum} passed."
-        else:
-            Error = msg = f"Error in file: {ffpnm}. Path: {filenm}:{checksum} verified, but does not match signature."
+        subprocess.run(
+            [fp, "--test", "--silent", filepath],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+    except subprocess.CalledProcessError as e:
+        details = (e.stderr or e.stdout or str(e)).strip()
+        msg = f'Error verifying file: {display_filenm}:\n\t {details}'
+        return msg, msg
     except Exception as e:
-        Error = msg = f'Error verifying file: {filenm}:\n\t {e}'
-    #print('\t'+msg if Error == None else Error)
-    return Error, msg
+        msg = f'Error verifying file: {display_filenm}:\n\t {e}'
+        return msg, msg
 
-def calcflacfingerprint(flac_file):
-    """
-    Computes the MD5 fingerprint of the raw audio data in the FLAC file.
+    if str(checksum).strip() == fingerprint.strip():
+        msg = f"{display_filenm}:{checksum} passed."
+        if normalization_note:
+            msg += normalization_note
+        return None, msg
 
-    Args:
-        flac_file (str): Path to the FLAC file.
+    msg = f"Error in file: {ffpnm}. Path: {display_filenm}:{checksum} verified, but does not match signature."
+    if normalization_note:
+        msg += normalization_note
+    return msg, msg
 
-    Returns:
-        str: The computed MD5 fingerprint (as a hexadecimal string).
-    NOTE: This does not detect errors when decoding. 
-    """
-    with sf.SoundFile(flac_file, 'r') as f:
-        try:
-            raw_audio_data = f.read(dtype='int16')
-            raw_audio_bytes = raw_audio_data.tobytes()
-            print("Sample rate:", f.samplerate)
-            print("Channels:", f.channels)
-            print("Frames:", f.frames)
-            print("Duration (s):", f.frames / f.samplerate)
-            #print("Extra info:" f.)
-            print("Fingerprint:", hashlib.md5(raw_audio_bytes).hexdigest())
-            #if 'extra_info' in sf.info(flac_file).:
-            extra_info = sf.info(flac_file).extra_info
-            #if extra_info:
-            print("Error information:", extra_info)                
-        except Exception as e:
-            print(f"Error decoding FLAC file: {e}")
-    return hashlib.md5(raw_audio_bytes).hexdigest()
+# def calcflacfingerprint(flac_file):
+#     """
+#     Computes the MD5 fingerprint of the raw audio data in the FLAC file.
+
+#     Args:
+#         flac_file (str): Path to the FLAC file.
+
+#     Returns:
+#         str: The computed MD5 fingerprint (as a hexadecimal string).
+#     NOTE: This does not detect errors when decoding. 
+#     """
+#     with sf.SoundFile(flac_file, 'r') as f:
+#         try:
+#             raw_audio_data = f.read(dtype='int16')
+#             raw_audio_bytes = raw_audio_data.tobytes()
+#             print("Sample rate:", f.samplerate)
+#             print("Channels:", f.channels)
+#             print("Frames:", f.frames)
+#             print("Duration (s):", f.frames / f.samplerate)
+#             #print("Extra info:" f.)
+#             print("Fingerprint:", hashlib.md5(raw_audio_bytes).hexdigest())
+#             #if 'extra_info' in sf.info(flac_file).:
+#             extra_info = sf.info(flac_file).extra_info
+#             #if extra_info:
+#             print("Error information:", extra_info)                
+#         except Exception as e:
+#             print(f"Error decoding FLAC file: {e}")
+#     return hashlib.md5(raw_audio_bytes).hexdigest()
 
 class albumfolder:
     """class to hold a directory containing flac files, equivalent to an album or a concert. in some cases the flac files may be located in sub directories divided by discs"""

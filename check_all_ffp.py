@@ -30,7 +30,7 @@ def build_ffp_file_list(DirectoryName):
                 ffpfile = ffp(path,file,{})
                 ffpfile.readffpfile()
                 ffplist.append(ffpfile)
-    return ffplist
+    return sorted(ffplist, key=lambda x: x.name)
 
 def main(rootdirectory):
     errors = []

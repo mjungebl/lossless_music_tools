@@ -7,7 +7,7 @@ import csv
 import logging
 import sys
 import shutil
-
+from typing import List, Union
 def load_config(config_name):
     with open(config_name, "rb") as f:
         #config = toml.load(f)
@@ -130,16 +130,29 @@ def replace_in_file_names(directory, find_str, replace_str):
                 os.rename(old_path, new_path)
                 print(f"Renamed: {filename} -> {new_filename}")
 
-def replace_in_folder_names(directory, find_str, replace_str):
+def replace_in_folder_names(directory:str, find_str:str, replace_str:str):
+    """
+    Renames folders in a directory by replacing a string in the folder.
+
+    Args:
+        directory: The directory containing the folders to rename.
+        find_str: The string to find in the filenames.
+        replace_str: The string to replace the find_str with.
+    """
+    print(f"Replacing '{find_str}' with '{replace_str}' in folder names under: {directory}")
     for root, dirs, filenames in os.walk(directory):
         for dir in dirs:
             if find_str in dir:
-                new_dir = dir.replace(find_str, replace_str)
-                old_path = os.path.join(root, dir)
-                new_path = os.path.join(root, new_dir)
-                os.rename(old_path, new_path)
-                print(f"Renamed: {dir} -> {new_dir}")            
-            #print(f'{root=} {dir=}')
+                try:
+                    new_dir = dir.replace(find_str, replace_str)
+                    new_dir = new_dir.strip()
+                    old_path = os.path.join(root, dir)
+                    new_path = os.path.join(root, new_dir)
+                    os.rename(old_path, new_path)
+                    print(f"Renamed: {dir} -> {new_dir}")
+                except Exception as e:
+                    print(f'Error renaming {dir}: {e}')          
+            print(f'{root=} {dir=}')
 
 def reset_logger():
     """Stop logging to any old file and start logging to new_log_file."""
@@ -285,11 +298,198 @@ def get_file_extensions(folder):
             extensions.add(ext)
     return sorted(extensions)
 
-# Example usage:
-#if __name__ == "__main__":
-    #folder_name = "path/to/your/folder"  # Replace with your target folder
-    #exts = get_file_extensions(folder_name)
-    #print("Found file extensions:", exts)
+def read_nonempty_lines(file_path):
+    """
+    Reads a text file and returns a list of all non-empty lines.
+    
+    A line is considered non-empty if it contains any non-whitespace characters.
+    
+    Args:
+        file_path (str): The path to the text file.
+    
+    Returns:
+        list: A list of non-empty lines (with trailing newline characters removed).
+    """
+    nonempty_lines = []
+    with open(file_path, "r", encoding="utf-8") as f:
+        for line in f:
+            if line.strip():  # Checks if line has non-whitespace characters.
+                nonempty_lines.append(line.rstrip("\n"))
+    return nonempty_lines
+
+
+def find_zero_length_flacs(root_dir: str) -> List[Path]:
+    r"""
+    Traverse the directory tree rooted at `root_dir` and return a list of 
+    Path objects pointing to any .flac files of size 0 bytes.
+
+    Parameters:
+        root_dir (str): Path to the top‐level folder to scan 
+                        (e.g., r"X:\Music\Kitchen\4TB").
+
+    Returns:
+        List[Path]: A list of pathlib.Path objects for each zero‐byte .flac found.
+    """
+    zero_length_files: List[Path] = []
+    root = Path(root_dir)
+
+    # Recursively search for “*.flac” anywhere under root
+    for flac_path in root.rglob("*.flac"):
+        #print(f"Checking: {flac_path}")
+        try:
+            if flac_path.stat().st_size == 0:
+                zero_length_files.append(flac_path)
+        except (OSError, IOError):
+            # If we can’t stat the file (permissions, broken link, etc.), skip it
+            continue
+
+    return zero_length_files
+
+
+
+def sort_file_lines(file_path: Path) -> Path:
+    """
+    Read a text file, sort its lines alphabetically, and write out a new file
+    with '_sorted' appended before the extension.
+
+    If the file contains non-UTF-8 bytes, it will ignore them rather than error.
+    """
+    file_path = Path(file_path)
+    if not file_path.is_file():
+        raise FileNotFoundError(f"Input file not found: {file_path}")
+
+    sorted_file = file_path.with_name(f"{file_path.stem}_sorted{file_path.suffix}")
+    if sorted_file.exists():
+        raise FileExistsError(f"Cannot overwrite existing file: {sorted_file}")
+
+    # Read, with a fallback on decode errors
+    try:
+        text = file_path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        text = file_path.read_text(encoding="utf-8", errors="ignore")
+
+    lines = text.splitlines()
+    lines.sort()
+
+    # Write back (ensure trailing newline)
+    sorted_file.write_text("\n".join(lines) + "\n", encoding="utf-8")
+    return sorted_file
+
+
+def remove_trailing_chars_from_folder(path: str, n: int) -> str:
+    """
+    Rename the folder at `path`, removing the last `n` characters
+    from its name.
+
+    Parameters:
+        path (str): Full path to the existing folder.
+        n (int): Number of characters to strip off the end of the folder’s name.
+
+    Returns:
+        str: The new full path of the renamed folder.
+
+    Raises:
+        FileNotFoundError: If `path` does not exist or isn’t a directory.
+        ValueError: If `n` is negative or >= length of the folder name.
+        OSError: If the rename operation fails (e.g. permissions).
+    """
+    if not os.path.isdir(path):
+        raise FileNotFoundError(f"No such directory: {path}")
+
+    parent, name = os.path.split(path)
+    if n < 0 or n >= len(name):
+        raise ValueError(f"Cannot remove {n} chars from '{name}'")
+
+    new_name = name[:-n]
+    new_path = os.path.join(parent, new_name)
+
+    os.rename(path, new_path)
+    return new_path
+
+def find_folders_ending_with(base_dir: str, suffix: str = "-001"):
+    base = Path(base_dir)
+    return [
+        p for p in base.iterdir()
+        if p.is_dir() and p.name.endswith(suffix)
+    ]
+
+def is_directory_empty(path: Union[str, Path]) -> bool:
+    """
+    Check whether the directory at `path` is empty.
+
+    Parameters:
+        path (str | Path): Path to the directory to check.
+
+    Returns:
+        bool: True if the directory exists and contains no files or subdirectories; False otherwise.
+
+    Raises:
+        FileNotFoundError: If `path` does not exist.
+        NotADirectoryError: If `path` exists but is not a directory.
+    """
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"No such path: {p}")
+    if not p.is_dir():
+        raise NotADirectoryError(f"Not a directory: {p}")
+
+    # Option A: pathlib
+    return next(p.iterdir(), None) is None
+
+    # — or —
+
+    # Option B: os.scandir (a bit faster on large dirs)
+    # with os.scandir(p) as it:
+    #     for _ in it:
+    #         return False
+    # return True
+
+
+def list_directories_recursive_pathlib(base_dir: str) -> List[Path]:
+    """
+    Return a list of all subdirectory Path objects under base_dir (recursively).
+
+    Parameters:
+        base_dir (str): Root directory to scan.
+
+    Returns:
+        List[Path]: Path objects for each subdirectory beneath base_dir.
+    """
+    base = Path(base_dir)
+    if not base.is_dir():
+        raise NotADirectoryError(f"Not a directory: {base}")
+
+    # rglob('*') finds all files & dirs; filter to dirs only
+    return [p for p in base.rglob('*') if p.is_dir()]
+
+
+def delete_directory_if_empty(path: Union[str, Path]) -> bool:
+    """
+    Delete the directory at `path` only if it is empty.
+
+    Parameters:
+        path (str | Path): The directory to delete.
+
+    Returns:
+        bool: True if the directory was empty and successfully deleted; False if it existed but was not empty.
+
+    Raises:
+        FileNotFoundError: If `path` does not exist.
+        NotADirectoryError: If `path` exists but is not a directory.
+        OSError: If deletion fails unexpectedly (e.g., permissions).
+    """
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"No such path: {p}")
+    if not p.is_dir():
+        raise NotADirectoryError(f"Not a directory: {p}")
+
+    # Use your existing empty-check
+    if is_directory_empty(p):
+        p.rmdir()  # removes the directory
+        return True
+    else:
+        return False
 
 
 def main():
@@ -301,7 +501,75 @@ def main():
 # --------------------------
 
 
-
+if __name__ == "__main__":
+    main()
+    # zero_length_files = find_zero_length_flacs(r"X:\Music\Kitchen\4TB")
+    # print(zero_length_files)
+    # folder = r'X:\Downloads\_Extract\_Batch\Phish'
+    # replace_in_folder_names(folder,'.CA.',',.CA.')    
+    # replace_in_folder_names(folder,'.',' ')
+    # replace_in_folder_names(folder,'FLAC16-WEEKaPAuG','')
+    # replace_in_folder_names(folder,' FLAC24-WEEKaPAuG',' [24-48]')
+    # replace_in_folder_names(folder,'Phish-','Phish - ')
+    # folder = r"X:\Downloads\_Zips\ETR\Grateful Dead - Enjoying The Ride (2025)"
+    # replace_in_folder_names(folder,'Enjoying the Ride ','')
+    # replace_in_folder_names(folder,' [FLAC16]','')
+    # replace_in_folder_names(folder,' [Flac]','')
+    # replace_in_folder_names(folder,' [flac]','')
+    # replace_in_folder_names(folder,'[FLAC]','')
+    # replace_in_folder_names(folder,'[Flac]','')
+    # replace_in_folder_names(folder,'[flac]','')
+    # replace_in_folder_names(folder,' FLAC','')
+    # replace_in_folder_names(folder,' [HDCD]','')
+    # replace_in_folder_names(folder,'[HDCD]','')
+    #[HDCD]
+    folder = r'X:\Downloads\_FTP\_Incoming\FLAC'
+    #folder = r'X:\Downloads\_Extract\_Batch\_PlayDead\New_Shows'
+    #folder = r'X:\Video\Video_DVD_4TB\Videos\Music\Phish\Bakers Dozen'
+    #replace_in_file_names(folder,'UntouchedTrimmedCH.','')
+    #replace_in_file_names(folder,'ph2017.07.','Phish - 2017-07-')
+    replace_in_folder_names(folder,'.',' ')
+    #replace_in_folder_names(folder,'treyanastasio','Trey Anastasio - ')
+    #replace_in_folder_names(folder,' nugs flac16441','')
+    # folder = r'X:\Downloads\_Extract\_Batch\Phish'
+    # replace_in_folder_names(folder,'.',' ')
+    replace_in_folder_names(folder,'FLAC16-WEEKaPAuG','')
+    replace_in_folder_names(folder,'-must4rd','')
+    # replace_in_folder_names(folder,'Phish-','Phish - ')
+    # folder = r'X:\Music\Studios\Studios\Talking Heads'
+    replace_in_folder_names(folder,' [FLAC]','')
+    replace_in_folder_names(folder,'FLAC24-96','[24-96]')
+    replace_in_folder_names(folder,'FLAC24-48','[24-48]')
+    replace_in_folder_names(folder,'Phil Lesh & Friends 2007','Phil Lesh & Friends - 2007')
+    # flac1644
+    replace_in_folder_names(folder,' flac1644','')
+    replace_in_folder_names(folder,' nugs','')
+    # replace_in_folder_names(folder,' [flac]','')
+    #Phish-
+    # replace_in_folder_names(folder,'Trey Anastasio-','Trey Anastasio - ')
+    # replace_in_folder_names(folder,'Trey Anastasio Band-','Trey Anastasio - ')
+    # replace_in_folder_names(folder,'Trey Anastasio Band - ','Trey Anastasio - ')
+    # folder = r'X:\Downloads\_Extract\_Batch\Leftover Salmon'
+    # replace_in_folder_names(folder,' [FLAC16]','')
+    # replace_in_folder_names(folder,'Leftover Salmon ','Leftover Salmon - ')
+    #replace_in_file_names(r"V:\String Cheese Incident\String Cheese Incident - 2022-07-17 - Red Rocks Amphitheatre, Morrison, CO",' - 2022-07-17 - Red Rocks Ampitheatre, Morrison, CO - The String Cheese Incident - The String Cheese Incident','')
+    #sort_file_lines(Path('zero_fingerprint_flacs_12TB.txt'))
+    #replace_in_file_names(r"X:\Downloads\_Mega\Grateful Dead\Grateful Dead - Enjoying the Ride (2025)","( ","(")
     
+    # renames = find_folders_ending_with(r"X:\Downloads\_Zips\Phish","-002")
+    # print(renames)
+    # trim_n = len("-20250509T030621Z-1-001")
+    # for name in renames:
+    #     new_name = remove_trailing_chars_from_folder(name, trim_n)
+    #     print(f"Renamed {name} to {new_name}")
 
+# CLEAN UP EMPTY DIRECTORIES UNDER A PARENT FOLDER
+    # dirs = list_directories_recursive_pathlib(r"X:\Downloads\_Zips\Phish")
+    # for x in dirs:
+    #     empty = is_directory_empty(x)
+    #     if empty:
+    #         print(f"Empty directory: {x}")
+    #         delete_directory_if_empty(x)
 
+    # folder = r'X:\Downloads\_Zips\Phish'
+    # replace_in_folder_names(folder,'phish','ph')

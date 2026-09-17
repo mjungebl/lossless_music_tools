@@ -291,7 +291,7 @@ def main():
     futures = []
     success_count = 0
     fail_count    = 0
-    max_workers   = 3
+    max_workers   = 6
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         for folder, shn_files in shn_dict.items():
@@ -371,7 +371,7 @@ def main():
 if __name__ == "__main__":
     if len(sys.argv) < 3:
         #print("Usage: python convert_shn_to_flac_with_shorten_multithreaded.py <source_parent> <destination_parent>")
-        source = r"X:\Downloads\_FTP\_Concerts_Unofficial\_renamed2\gd1972" #parent directroy to search for shns
-        target = r"M:\ConvertSHN\Grateful_Dead\gd1972" #new parent directory
+        source = r"X:\Downloads\_FTP\_Concerts_Unofficial\Phish\ph2000" #parent directroy to search for shns
+        target = r"X:\Downloads\_FTP\_Concerts_Unofficial\Phish\ph2000" #new parent directory
         sys.argv = ["shntoflac_batch.py",source,target]
     main()

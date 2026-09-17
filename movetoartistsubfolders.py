@@ -13,6 +13,11 @@ def main(directoryname):
     directoryname = fix_directory_name(directoryname)
     listsubfolders = get_child_directories(directoryname)
     foldermap = get_artist_subfolders(directoryname, listsubfolders, exceptions)
+    # Resolve artist folders under the input directory, not the working directory.
+    foldermap = {
+        source: os.path.join(directoryname, artist) if artist else None
+        for source, artist in foldermap.items()
+    }
     artistfolders = list(set(foldermap.values()))
     for artistfolder in artistfolders:
         if artistfolder:
@@ -27,8 +32,7 @@ def main(directoryname):
                     shutil.move(origpath, newpath)
 
 if __name__ == "__main__":
-    #sys.argv = [' ',r'X:\Downloads\_Extract\_Batch\' ]
+    sys.argv = [sys.argv[0], r'X:\Downloads\_Extract\_Batch']
     rootdirectory = str(sys.argv[1])
-    #rootdirectory = r'X:\Downloads\_Extract\_Batch' 
     #print("ARTISTEXCEPTIONFILE:", ARTISTEXCEPTIONFILE)
     main(rootdirectory)
